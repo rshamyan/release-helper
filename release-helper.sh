@@ -106,7 +106,12 @@ pushToServer() {
     local repo=`git config --get remote.origin.url`
     if grep -Eq "^$repo" "$PREFIX/$DEVREPOS_FILE";
     then
-        BRANCH="dev"
+        if (echo "$DESTINATION_BRANCH" | grep -Eq ^release)
+        then
+            BRANCH=$DESTINATION_BRANCH
+        else
+            BRANCH="dev"
+        fi
     else
         BRANCH=$DESTINATION_BRANCH
     fi
@@ -157,9 +162,9 @@ setupEnvironment() {
 }
 
 setupDirs() {
-    for d in `find $DIRS_PREFIX/ -name .git -type d -prune`
+    for d in `find $DIRS_PREFIX/ -name .git -type d -not -path "$PWD" -prune`
     do
-        DIRS+=($d)
+        DIRS+=("$d/..")
     done
 }
 
@@ -191,7 +196,7 @@ pushDirtyDirs() {
 main() {
     for d in "${DIRS[@]}"
     do
-       cd $d/..
+       cd $d
        processDirectory
        cd $OLDPWD
     done

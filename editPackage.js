@@ -15,13 +15,18 @@ function edit(obj) {
         let m = /^git\+ssh:\/\/(.+)#(.+)$/.exec(value);
         let isGitRepo = !!m && !!m[0];
         let isRelease = destinationBranch.startsWith('release');
+        let isHotfix = destinationBranch.startsWith('hotfix');
         if (isGitRepo) {
             let newValue = value;
             let repo = m[1];
             let isDevRepo = devRepos.find(r => r == repo);
             let isExcludeRepo = excludeRepos.find(r => r == repo);
             if (isDevRepo) {
-                newValue = `git+ssh://${repo}#${isRelease ? destinationBranch : 'dev'}`
+                if (!isHotfix) {
+                    newValue = `git+ssh://${repo}#${isRelease ? destinationBranch : 'dev'}`
+                } else {
+                    console.log(`>>> Package.json: Hotfix: Ignoring "${key}":"${newValue}"`)
+                }
             } else if (!isExcludeRepo) {
                 newValue = `git+ssh://${repo}#${destinationBranch}`
             }
