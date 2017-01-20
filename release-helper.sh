@@ -25,8 +25,6 @@ prepareGit() {
 editPackageJson() {
     echo "Editing package.json:         #" node "$PREFIX/editPackage.js package.json $DESTINATION_BRANCH $PREFIX/$DEVREPOS_FILE $PREFIX/$EXCLUDEREPOS_FILE"
     node $PREFIX/editPackage.js package.json $DESTINATION_BRANCH $PREFIX/$DEVREPOS_FILE $PREFIX/$EXCLUDEREPOS_FILE
-    echo "Adding to stage:              #" git add -u
-    git add -u
 }
 
 
@@ -95,6 +93,8 @@ processDirectory() {
 
 commitDirectory() {
     echo "$PWD: "
+    echo "Adding to stage              #" git add -u
+    git add -u
     echo "Commiting:                   #" git commit -m "$COMMIT_MESSAGE"
     git commit -m "$COMMIT_MESSAGE"
 }
@@ -162,9 +162,15 @@ setupEnvironment() {
 }
 
 setupDirs() {
-    for d in `find $DIRS_PREFIX/ -name .git -type d -not -path "$PWD" -prune`
+    for d in `find $DIRS_PREFIX/ -name .git -type d -prune`
     do
-        DIRS+=("$d/..")
+        local REALPATH=`realpath $d/..`
+        if [ "$REALPATH" = "$PWD" ]
+        then
+            echo "Skiping $REALPATH"
+        else
+            DIRS+=("$d/..")
+        fi
     done
 }
 
