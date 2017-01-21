@@ -17,12 +17,21 @@ DIRS_PREFIX=".."
 #set -e
 
 
-prepareGit() {
+stashGit() {
     git reset
     echo "Stashing:                    #" git stash -u
     git stash -u
     echo "Fetching:                    #" git fetch
     git fetch
+}
+
+checkoutAndPullBranch() {
+    local BRANCH=$1
+    echo "Checkout to $1:             #" git checkout $1
+    git checkout $1
+
+    echo "Pulling to $1:              #" git pull origin $1
+    git pull origin $1
 }
 
 
@@ -33,10 +42,7 @@ editPackageJson() {
 
 
 createBranch() {
-    echo "Checkout to start:           #" git checkout $START_BRANCH
-    git checkout $START_BRANCH
-    echo "Pulling to start:            #" git pull origin $START_BRANCH
-    git pull origin $START_BRANCH
+    checkoutAndPullBranch $START_BRANCH
     echo "Creating destination branch: #" git checkout -b $DESTINATION_BRANCH
     git checkout $DESTINATION_BRANCH || git checkout -b $DESTINATION_BRANCH
 }
@@ -45,7 +51,7 @@ createBranch() {
 processProjectDirectory() {
     echo "Processing project repo"
 
-    prepareGit
+    stashGit
 
     createBranch
 
@@ -55,18 +61,14 @@ processProjectDirectory() {
 processDevDirectory() {
     echo "Processing dev repo"
 
-    prepareGit
+    stashGit
 
     if (echo "$DESTINATION_BRANCH" | grep -Eq ^release)
     then
         createBranch
 
     else
-        echo "Checkout to dev:             #" git checkout dev
-        git checkout dev
-
-        echo "Pulling to dev:              #" git pull origin dev
-        git pull origin dev
+        checkoutAndPullBranch "dev"
 
     fi
 
@@ -109,13 +111,9 @@ pushToCommitsFile() {
 freezeProjectDirectory() {
     echo "Freezing project repo"
 
-    prepareGit
+    stashGit
 
-    echo "Checkout to $DESTINATION_BRANCH:#" git checkout $DESTINATION_BRANCH
-    git checkout $DESTINATION_BRANCH
-
-    echo "Pulling to $DESTINATION_BRANCH: #" git pull origin $DESTINATION_BRANCH
-    git pull origin $DESTINATION_BRANCH
+    checkoutAndPullBranch $DESTINATION_BRANCH
 
     pushToCommitsFile
 }
@@ -123,13 +121,9 @@ freezeProjectDirectory() {
 freezeDevDirectory() {
     echo "Freezing dev repo"
 
-    prepareGit
+    stashGit
 
-    echo "Checkout to dev:             #" git checkout dev
-    git checkout dev
-
-    echo "Pulling to dev:              #" git pull origin dev
-    git pull origin dev
+    checkoutAndPullBranch "dev"
 
     pushToCommitsFile
 }
@@ -153,6 +147,18 @@ freezeDirectory() {
         fi
     fi
     PACKAGE_JSON_LIST+=("$PWD/package.json")
+}
+
+manualEditDevDirectory() {
+    stashGit
+
+    checkoutAndPullBranch "dev"
+}
+
+manualEditProjetcDirectory() {
+    stashGit
+
+    checkoutAndPullBranch $DESTINATION_BRANCH
 }
 
 commitDirectory() {
@@ -279,14 +285,7 @@ pushDirtyDirs() {
     fi
 }
 
-createBranchMode() {
-    for d in "${DIRS[@]}"
-    do
-       cd $d
-       processDirectory
-       cd $OLDPWD
-    done
-
+openCommitAndPush() {
     echo "Opening package.json"
     $EDITOR ${PACKAGE_JSON_LIST[*]}
 
@@ -295,6 +294,17 @@ createBranchMode() {
 
     echo "Pushing dirty dirs"
     pushDirtyDirs
+}
+
+createBranchMode() {
+    for d in "${DIRS[@]}"
+    do
+       cd $d
+       processDirectory
+       cd $OLDPWD
+    done
+
+    openCommitAndPush
 }
 
 freezeBranchMode() {
@@ -311,14 +321,41 @@ freezeBranchMode() {
         cd $OLDPWD
     done
 
-    echo "Opening package.json"
-    $EDITOR ${PACKAGE_JSON_LIST[*]}
+    openCommitAndPush
+}
 
-    echo "Commiting dirty dirs"
-    commitDirtyDirs
+mergeBranchMode() {
+    echo "MErge"
+}
 
-    echo "Pushing dirty dirs"
-    pushDirtyDirs
+
+manualEditMode() {
+    for d in "${DIRS[@]}"
+    do
+       cd $d
+       echo "$PWD:"
+       echo "Detecting repo                  #" git config --get remote.origin.url
+       local repo=`git config --get remote.origin.url`
+       echo $repo
+       if grep -Eq "^$repo" "$PREFIX/$DEVREPOS_FILE";
+       then
+           manualEditDevDirectory
+           DIRTYDIRS+=($PWD)
+           PACKAGE_JSON_LIST+=("$PWD/package.json")
+       else
+           if grep -Eq "^$repo" "$PREFIX/$EXCLUDEREPOS_FILE";
+           then
+               echo "Ignoring this repo"
+           else
+               manualEditProjetcDirectory
+               DIRTYDIRS+=($PWD)
+               PACKAGE_JSON_LIST+=("$PWD/package.json")
+           fi
+       fi
+       cd $OLDPWD
+    done
+
+    openCommitAndPush
 }
 
 runInMode() {
@@ -328,6 +365,12 @@ runInMode() {
             ;;
         "freeze-branch")
             freezeBranchMode
+            ;;
+        "manual-edit")
+            manualEditMode
+            ;;
+        "merge-branch")
+            mergeBranchMode
             ;;
         "*")
             echo "Unknown mode $MODE"
