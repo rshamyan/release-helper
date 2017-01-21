@@ -9,8 +9,12 @@ DEFAULT_MESSAGE="package.json"
 DEFAULT_EDITOR="gvim -fp"
 DEFAULT_DEVREPOS_FILE="devrepos"
 DEFAULT_EXCLUDEREPOS_FILE="excluderepos"
+DEFAULT_COMMITS_FILE="commitsfile"
+DEFAULT_MODE="create-branch"
 PREFIX="../release-helper"
 DIRS_PREFIX=".."
+
+#set -e
 
 
 prepareGit() {
@@ -24,7 +28,7 @@ prepareGit() {
 
 editPackageJson() {
     echo "Editing package.json:         #" node "$PREFIX/editPackage.js package.json $DESTINATION_BRANCH $PREFIX/$DEVREPOS_FILE $PREFIX/$EXCLUDEREPOS_FILE"
-    node $PREFIX/editPackage.js package.json $DESTINATION_BRANCH $PREFIX/$DEVREPOS_FILE $PREFIX/$EXCLUDEREPOS_FILE
+    node $PREFIX/editPackage.js package.json $DESTINATION_BRANCH $PREFIX/$DEVREPOS_FILE $PREFIX/$EXCLUDEREPOS_FILE $PREFIX/$COMMITS_FILE
 }
 
 
@@ -90,6 +94,66 @@ processDirectory() {
     PACKAGE_JSON_LIST+=("$PWD/package.json")
 }
 
+pushToCommitsFile() {
+    local hash=`git log -1 --format="%H"`
+    local repo=`git config --get remote.origin.url`
+    local repo2=$repo
+    repo2=`echo ${repo2/\:/\/}`
+    echo "Pushing to commits file $repo#$hash"
+    echo "$repo#$hash" >> "$PREFIX/$COMMITS_FILE"
+    echo "Pushing to commits file $repo2#$hash"
+    echo "$repo2#$hash" >> "$PREFIX/$COMMITS_FILE"
+}
+
+
+freezeProjectDirectory() {
+    echo "Freezing project repo"
+
+    prepareGit
+
+    echo "Checkout to $DESTINATION_BRANCH:#" git checkout $DESTINATION_BRANCH
+    git checkout $DESTINATION_BRANCH
+
+    echo "Pulling to $DESTINATION_BRANCH: #" git pull origin $DESTINATION_BRANCH
+    git pull origin $DESTINATION_BRANCH
+
+    pushToCommitsFile
+}
+
+freezeDevDirectory() {
+    echo "Freezing dev repo"
+
+    prepareGit
+
+    echo "Checkout to dev:             #" git checkout dev
+    git checkout dev
+
+    echo "Pulling to dev:              #" git pull origin dev
+    git pull origin dev
+
+    pushToCommitsFile
+}
+
+freezeDirectory() {
+    echo "$PWD:"
+    echo "Detecting repo                  #" git config --get remote.origin.url
+    local repo=`git config --get remote.origin.url`
+    echo $repo
+    if grep -Eq "^$repo" "$PREFIX/$DEVREPOS_FILE";
+    then
+        freezeDevDirectory
+        DIRTYDIRS+=($PWD)
+    else
+        if grep -Eq "^$repo" "$PREFIX/$EXCLUDEREPOS_FILE";
+        then
+            echo "Ignoring this repo"
+        else
+            freezeProjectDirectory
+            DIRTYDIRS+=($PWD)
+        fi
+    fi
+    PACKAGE_JSON_LIST+=("$PWD/package.json")
+}
 
 commitDirectory() {
     echo "$PWD: "
@@ -122,26 +186,33 @@ pushToServer() {
 setupEnvironment() {
     if [ -z "$1" ];
     then
+        read -p "Enter mode ($DEFAULT_MODE):" MODE
+        MODE=${MODE:-$DEFAULT_MODE}
+    else
+        MODE=$1
+    fi
+    if [ -z "$2" ];
+    then
         read -p "Enter start branch ($DEFAULT_START_BRANCH):" START_BRANCH
         START_BRANCH=${START_BRANCH:-$DEFAULT_START_BRANCH}
     else
-        START_BRANCH=$1
-    fi
-
-    if [ -z "$2" ];
-    then
-        read -p "Enter destination branch:" DESTINATION_BRANCH
-        DESTINATION_BRANCH=${DESTINATION_BRANCH:-$DEFAULT_DESTINATION_BRANCH}
-    else
-        DESTINATION_BRANCH=$2
+        START_BRANCH=$2
     fi
 
     if [ -z "$3" ];
     then
+        read -p "Enter destination branch:" DESTINATION_BRANCH
+        DESTINATION_BRANCH=${DESTINATION_BRANCH:-$DEFAULT_DESTINATION_BRANCH}
+    else
+        DESTINATION_BRANCH=$3
+    fi
+
+    if [ -z "$4" ];
+    then
         read -p "Enter editor command. Note, should wait ($DEFAULT_EDITOR):" EDITOR
         EDITOR=${EDITOR:-$DEFAULT_EDITOR}
     else
-        DESTINATION_BRANCH=$3
+        DESTINATION_BRANCH=$4
     fi
 
     read -p "Enter dev repos file ($DEFAULT_DEVREPOS_FILE): " DEVREPOS_FILE
@@ -159,6 +230,15 @@ setupEnvironment() {
         echo "file $EXCLUDEREPOS_FILE not found"
         exit
     fi
+
+    read -p "Enter commits file ($DEFAULT_COMMITS_FILE): " COMMITS_FILE
+    COMMITS_FILE=${COMMITS_FILE:-$DEFAULT_COMMITS_FILE}
+    if [ -f $COMMITS_FILE ]
+    then
+        echo "Cleaning $COMMITS_FILE"
+        rm -rf $COMMITS_FILE
+    fi
+    touch $COMMITS_FILE
 }
 
 setupDirs() {
@@ -199,7 +279,7 @@ pushDirtyDirs() {
     fi
 }
 
-main() {
+createBranchMode() {
     for d in "${DIRS[@]}"
     do
        cd $d
@@ -208,7 +288,7 @@ main() {
     done
 
     echo "Opening package.json"
-    `$EDITOR ${PACKAGE_JSON_LIST[*]}`
+    $EDITOR ${PACKAGE_JSON_LIST[*]}
 
     echo "Commiting dirty dirs"
     commitDirtyDirs
@@ -217,10 +297,48 @@ main() {
     pushDirtyDirs
 }
 
-setupEnvironment $1 $2 $3
+freezeBranchMode() {
+    for d in "${DIRS[@]}"
+    do
+       cd $d
+       freezeDirectory
+       cd $OLDPWD
+    done
+    for d in "${DIRTYDIRS[@]}"
+    do
+        cd $d
+        editPackageJson
+        cd $OLDPWD
+    done
+
+    echo "Opening package.json"
+    $EDITOR ${PACKAGE_JSON_LIST[*]}
+
+    echo "Commiting dirty dirs"
+    commitDirtyDirs
+
+    echo "Pushing dirty dirs"
+    pushDirtyDirs
+}
+
+runInMode() {
+    case $MODE in
+        "create-branch"|"unfreeze-branch")
+            createBranchMode
+            ;;
+        "freeze-branch")
+            freezeBranchMode
+            ;;
+        "*")
+            echo "Unknown mode $MODE"
+            exit 1
+    esac
+}
+
+setupEnvironment $1 $2 $3 $4
 
 setupDirs
 
-main
+runInMode
 
 echo "DONE"
