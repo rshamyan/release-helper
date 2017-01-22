@@ -7,6 +7,7 @@ DEFAULT_START_BRANCH="master"
 DEFAULT_DESTINATION_BRANCH="feature-test"
 DEFAULT_MESSAGE="package.json"
 DEFAULT_EDITOR="gvim -fp"
+DEFAULT_MERGETOOL="meld"
 DEFAULT_DEVREPOS_FILE="devrepos"
 DEFAULT_EXCLUDEREPOS_FILE="excluderepos"
 DEFAULT_COMMITS_FILE="commitsfile"
@@ -42,9 +43,36 @@ editPackageJson() {
 
 
 createBranch() {
-    checkoutAndPullBranch $START_BRANCH
-    echo "Creating destination branch: #" git checkout -b $DESTINATION_BRANCH
-    git checkout $DESTINATION_BRANCH || git checkout -b $DESTINATION_BRANCH
+    local START=${1:-$START_BRANCH}
+    local DESTINATION=${2:-$DESTINATION_BRANCH}
+    checkoutAndPullBranch $START
+    echo "Creating destination branch: #" git checkout -b $DESTINATION
+    git checkout $DESTINATION || git checkout -b $DESTINATION
+}
+
+mergeBranch() {
+    stashGit
+    local START=${1:-$START_BRANCH}
+    local DESTINATION=${2:-$DESTINATION_BRANCH}
+    checkoutAndPullBranch $START
+    checkoutAndPullBranch $DESTINATION
+    echo "git merge $START --no-ff"
+    git merge $START --no-ff
+    if ! [ -z $? ];
+    then
+        echo "Merge failed, Running merge tool"
+        echo "git mergetool -t $MERGE_TOOL"
+        git mergetool -t $MERGE_TOOL
+        read -p "Merge was successfull? Commit merge? (y/n):" BOOL
+        if [ "$BOOL" = "y" ]
+        then
+            git add -u
+            git commit
+            DIRTYDIRS+=($PWD)
+        fi
+    else
+        DIRTYDIRS+=($PWD)
+    fi
 }
 
 
@@ -53,7 +81,7 @@ processProjectDirectory() {
 
     stashGit
 
-    createBranch
+    createBranch $START_BRANCH $DESTINATION_BRANCH
 
     editPackageJson
 }
@@ -65,11 +93,15 @@ processDevDirectory() {
 
     if (echo "$DESTINATION_BRANCH" | grep -Eq ^release)
     then
-        createBranch
+        createBranch "dev" $DESTINATION_BRANCH
 
     else
-        checkoutAndPullBranch "dev"
-
+        if (echo "$DESTINATION_BRANCH" | grep -Eq ^hotfix)
+        then
+            createBranch $START_BRANCH $DESTINATION_BRANCH
+        else
+            checkoutAndPullBranch "dev"
+        fi
     fi
 
     editPackageJson
@@ -172,19 +204,7 @@ commitDirectory() {
 
 pushToServer() {
     echo "$PWD: "
-    local BRANCH
-    local repo=`git config --get remote.origin.url`
-    if grep -Eq "^$repo" "$PREFIX/$DEVREPOS_FILE";
-    then
-        if (echo "$DESTINATION_BRANCH" | grep -Eq ^release)
-        then
-            BRANCH=$DESTINATION_BRANCH
-        else
-            BRANCH="dev"
-        fi
-    else
-        BRANCH=$DESTINATION_BRANCH
-    fi
+    local BRANCH=`git symbolic-ref --short HEAD`
     echo "Pushing to origin            #" git push -u origin $BRANCH
     git push -u origin $BRANCH
 }
@@ -219,6 +239,14 @@ setupEnvironment() {
         EDITOR=${EDITOR:-$DEFAULT_EDITOR}
     else
         DESTINATION_BRANCH=$4
+    fi
+
+    if [ -z "$5" ];
+    then
+        read -p "Enter mergetool ($DEFAULT_MERGETOOL):" MERGE_TOOL
+        MERGE_TOOL=${MERGE_TOOL:-$DEFAULT_MERGETOOL}
+    else
+        MERGE_TOOL=$5
     fi
 
     read -p "Enter dev repos file ($DEFAULT_DEVREPOS_FILE): " DEVREPOS_FILE
@@ -325,7 +353,33 @@ freezeBranchMode() {
 }
 
 mergeBranchMode() {
-    echo "MErge"
+    for d in "${DIRS[@]}"
+    do
+       cd $d
+       echo "$PWD:"
+       echo "Detecting repo                  #" git config --get remote.origin.url
+       local repo=`git config --get remote.origin.url`
+       echo $repo
+       if grep -Eq "^$repo" "$PREFIX/$DEVREPOS_FILE";
+       then
+           if (echo "$DESTINATION_BRANCH" | grep -Eq ^master)
+           then
+               mergeBranch
+           else
+               echo "Ignoring dev repo"
+           fi
+       else
+           if grep -Eq "^$repo" "$PREFIX/$EXCLUDEREPOS_FILE";
+           then
+               echo "Ignoring this repo"
+           else
+               mergeBranch
+           fi
+       fi
+       cd $OLDPWD
+    done
+    echo "Pushing dirty dirs"
+    pushDirtyDirs
 }
 
 
@@ -378,7 +432,7 @@ runInMode() {
     esac
 }
 
-setupEnvironment $1 $2 $3 $4
+setupEnvironment $1 $2 $3 $4 $5
 
 setupDirs
 
