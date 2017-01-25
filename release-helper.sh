@@ -212,14 +212,14 @@ pushToServer() {
 setupEnvironment() {
     if [ -z "$1" ];
     then
-        read -p "Enter mode ($DEFAULT_MODE):" MODE
+        read -p "Enter mode ($DEFAULT_MODE): " MODE
         MODE=${MODE:-$DEFAULT_MODE}
     else
         MODE=$1
     fi
     if [ -z "$2" ];
     then
-        read -p "Enter start branch ($DEFAULT_START_BRANCH):" START_BRANCH
+        read -p "Enter start branch ($DEFAULT_START_BRANCH): " START_BRANCH
         START_BRANCH=${START_BRANCH:-$DEFAULT_START_BRANCH}
     else
         START_BRANCH=$2
@@ -227,7 +227,7 @@ setupEnvironment() {
 
     if [ -z "$3" ];
     then
-        read -p "Enter destination branch:" DESTINATION_BRANCH
+        read -p "Enter destination branch: " DESTINATION_BRANCH
         DESTINATION_BRANCH=${DESTINATION_BRANCH:-$DEFAULT_DESTINATION_BRANCH}
     else
         DESTINATION_BRANCH=$3
@@ -238,7 +238,7 @@ setupEnvironment() {
         read -p "Enter editor command. Note, should wait ($DEFAULT_EDITOR):" EDITOR
         EDITOR=${EDITOR:-$DEFAULT_EDITOR}
     else
-        DESTINATION_BRANCH=$4
+        EDITOR=$4
     fi
 
     if [ -z "$5" ];
@@ -432,7 +432,7 @@ runInMode() {
     esac
 }
 
-setupEnvironment $1 $2 $3 $4 $5
+setupEnvironment "$1" "$2" "$3" "$4" "$5"
 
 setupDirs
 
