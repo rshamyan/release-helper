@@ -43,11 +43,12 @@ function edit(obj) {
                     newValue = `git+ssh://${repo}#${hash}`
                 }
             } else if (!isExcludeRepo) {
-                if (foundInCommitsFile) {
-                    hash = foundInCommitsFile.hash;
-                } else {
+                // TODO disable project repo commit hash freezing
+                // if (foundInCommitsFile) {
+                //     hash = foundInCommitsFile.hash;
+                // } else {
                     hash = destinationBranch;
-                }
+                // }
                 newValue = `git+ssh://${repo}#${hash}`
             }
             console.log(`>>> Package.json: Setting "${key}":"${newValue}"`)
